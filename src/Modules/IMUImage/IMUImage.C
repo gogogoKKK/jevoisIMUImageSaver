@@ -27,6 +27,7 @@
 #include <cstdlib> // for std::system()
 #include <fstream>
 #include <opencv2/highgui/highgui.hpp>
+#include <sstream>
 
 
 // icon by Catalin Fertu in cinema at flaticon
@@ -172,7 +173,25 @@ class IMUImage : public jevois::Module,
        {
 		 nimgs = 0;
          itsStartSave.store(true);
-		 std::string timepath = time_str();
+		 std::string timepath;
+		 std::ifstream inFilePathName(jevois_module_root_path+"/name.txt", std::ios::in);
+		 int npath = 0;
+		 if(inFilePathName.is_open()){
+			 std::string tmp;
+			 getline(inFilePathName, tmp, '\n');
+			 std::stringstream ss;
+			 ss << tmp;
+			 ss >> npath;
+			 inFilePathName.close();
+		 }
+		 char buf[256];
+		 sprintf(buf, "%06d", npath++);
+		 timepath = buf;
+
+		 std::ofstream outFilePathName(jevois_module_root_path+"/name.txt", std::ofstream::out);
+		 outFilePathName << npath << "\n";
+		 outFilePathName.close();
+
 		 imuImgRootPath = jevois_root_path + "/"+timepath;
 		 imgPath = imuImgRootPath + "/left/" ;
 		 std::string cmd = "/bin/mkdir -p " + imgPath;
@@ -265,6 +284,7 @@ class IMUImage : public jevois::Module,
     std::atomic<bool> itsRunSaveIMU, itsStartSave, itsRunSaveImg;
 	std::future<void> futureSaveIMU, futureSaveImg;
 	const std::string jevois_root_path = "/jevois/data/saveIMUImage";
+	const std::string jevois_module_root_path = "/jevois/modules/zsk/imuimage";
 	std::string imgPath, imuImgRootPath;
 	const float g0 = 9.8, deg2rad = 3.1415926/180.;
 	int nimgs;
