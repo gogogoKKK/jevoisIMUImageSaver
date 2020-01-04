@@ -52,12 +52,12 @@
       components that are used in several modules, and each module's .so file contains only the code specific to that
       module.
 
-    @author Sample Author
+    @author zsk
 
     @videomapping YUYV 640 480 28.5 YUYV 640 480 28.5 zsk IMUImage
-    @email sampleemail\@samplecompany.com
-    @address 123 First Street, Los Angeles, CA 90012
-    @copyright Copyright (C) 2017 by Sample Author
+    @email 291790832@qq.com	
+    @address 
+    @copyright Copyright (C) 2017 by zsk 
     @mainurl http://samplecompany.com
     @supporturl http://samplecompany.com/support
     @otherurl http://samplecompany.com/about
@@ -68,14 +68,23 @@ static jevois::ParameterCategory const ParamCateg("Save img and imu options");
 
 JEVOIS_DECLARE_PARAMETER(bufsize, int, "Buf size for the queue",
                          2000, ParamCateg);
+
+JEVOIS_DECLARE_PARAMETER(maxFrames, int, "when the number of frame reaches the max, the saving process stops",
+                         3000, ParamCateg);
+
+JEVOIS_DECLARE_PARAMETER(saveIMUOnly, bool, "Only save IMU data and pass the image data",
+                         false, ParamCateg);
+
+JEVOIS_DECLARE_PARAMETER(IMUReadFrequency, double, "The read frequency for IMU sampling. Works only for Raw mode. In FIFO mode, try a large frequency",
+                         100., ParamCateg);
 class IMUImage : public jevois::Module,
-	public jevois::Parameter<bufsize>
+	public jevois::Parameter<bufsize, maxFrames, saveIMUOnly, IMUReadFrequency>
 {
   public:
     //! Default base class constructor ok
     using jevois::Module::Module;
     IMUImage(std::string const & instance) : jevois::Module(instance), 
-	itsBufImgData(bufsize::get()), itsBufImgTime(bufsize::get()), itsStartSave(false), itsRunSaveIMU(true), itsRunSaveImg(true)
+	itsBufImgData(bufsize::get()), itsStartSave(false), itsRunSaveIMU(true), itsRunSaveImg(true)
     {
        itsIMU = addSubComponent<jevois::ICM20948>("imu");
     }
@@ -122,8 +131,7 @@ class IMUImage : public jevois::Module,
 
 	  // stop save image thread
 	  itsRunSaveImg.store(false);
-	  itsBufImgData.push(cv::Mat());
-	  itsBufImgTime.push(-1);
+	  itsBufImgData.push(std::make_pair(-1, cv::Mat()));
       try { futureSaveImg.get(); } catch (...) { jevois::warnAndIgnoreException(); }
     }
 
@@ -140,12 +148,23 @@ class IMUImage : public jevois::Module,
 		  //todo: save image to a directory
 		  auto now = std::chrono::high_resolution_clock::now();
 		  auto micro = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-		  itsBufImgData.push(imgray);
-		  itsBufImgTime.push(micro);
-		  //std::string imPNGpath = imgPath+"/"+std::to_string(micro)+".png";
-		  //cv::imwrite(imPNGpath, imgray);
-		  if (nimgs++%100==0){
-			  LINFO("save image: " << nimgs);
+		  if (!saveIMUOnly::get()){
+			  itsBufImgData.push(std::make_pair(micro, std::move(imgray)));
+			  //std::string imPNGpath = imgPath+"/"+std::to_string(micro)+".png";
+			  //cv::imwrite(imPNGpath, imgray);
+			  if (nimgs++%100==0){
+				  LINFO("save image: " << nimgs);
+			  }
+			  if (nimgs == maxFrames::get()){
+				  itsStartSave.store(false);
+				  itsBufImgData.push(std::make_pair(-1, cv::Mat()));
+				  while (itsBufImgData.filled_size())
+				  {
+					  LINFO("Waiting for writer thread to complete, " << itsBufImgData.filled_size() << " frames to go...");
+					  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				  }
+				  sendSerial("SAVESTOP");
+			  }
 		  }
 	  }
     }
@@ -157,13 +176,25 @@ class IMUImage : public jevois::Module,
 		  //todo: save image to a directory
 		  auto now = std::chrono::high_resolution_clock::now();
 		  auto micro = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-		  itsBufImgData.push(imgray);
-		  itsBufImgTime.push(micro);
+		  if (!saveIMUOnly::get())
+		  {
+			  itsBufImgData.push(std::make_pair(micro, std::move(imgray)));
+			  if (nimgs++%100==0){
+				  LINFO("save image: " << nimgs);
+			  }
+			  if (nimgs == maxFrames::get()){
+				  itsStartSave.store(false);
+				  itsBufImgData.push(std::make_pair(-1, cv::Mat()));
+				  while (itsBufImgData.filled_size())
+				  {
+					  LINFO("Waiting for writer thread to complete, " << itsBufImgData.filled_size() << " frames to go...");
+					  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+				  }
+				  sendSerial("SAVESTOP");
+			  }
+		  }
 		  //std::string imPNGpath = imgPath+"/"+std::to_string(micro)+".png";
 		  //cv::imwrite(imPNGpath, imgray);
-		  if (nimgs++%100==0){
-			  LINFO("save image: " << nimgs);
-		  }
 	  }
     }
 
@@ -202,8 +233,7 @@ class IMUImage : public jevois::Module,
        else if (str == "stop")
        {
          itsStartSave.store(false);
-		 itsBufImgData.push(cv::Mat());
-		 itsBufImgTime.push(-1);
+		 itsBufImgData.push(std::make_pair(-1, cv::Mat()));
 		 while (itsBufImgData.filled_size())
 		 {
 			 LINFO("Waiting for writer thread to complete, " << itsBufImgData.filled_size() << " frames to go...");
@@ -225,23 +255,21 @@ class IMUImage : public jevois::Module,
 	void saveImg(){
 		while(itsRunSaveImg.load()){
 			while (itsBufImgData.filled_size()){
-				if (itsBufImgData.filled_size() != itsBufImgTime.filled_size()){
-					//std::runtime_error
-					LFATAL("time data size != img data size");
-				}
-				cv::Mat im = itsBufImgData.pop();
-				long long time = itsBufImgTime.pop();
+				auto timeim = itsBufImgData.pop();
+				const cv::Mat &im = timeim.second;
+				const long long &time = timeim.first;
 				if (im.empty() && time < 0){
 					break;
 				}
 				std::string imPNGpath = imgPath+"/"+std::to_string(time)+".png";
 				cv::imwrite(imPNGpath, im);
 			}
-			usleep(30*1e3);
+			usleep(5*1e3);
 		}
 	}
 
     void saveIMU(){
+	  double sleeptime = 1000./IMUReadFrequency::get() - 1;
 	  while(itsRunSaveIMU.load()){
 		  if (itsStartSave.load()){
 			  unsigned int n = 0;
@@ -262,7 +290,7 @@ class IMUImage : public jevois::Module,
 					  LINFO("a: " << d.ax() << " " << d.ay() << " " << d.az() << " g: " << d.gx() << " " << d.gy() << " " << d.gz() << " mag: " << d.mx() << " " << d.my() << " " << d.mz());
 					  LINFO("mode: " << itsIMU->mode::get() << " grate: " << itsIMU->grate::get() << " data ready: " << itsIMU->dataReady() << " mill: " << micro);
 				  }
-				  usleep(9*1e3);
+				  usleep(sleeptime*1e3);
 			  }
 			  fimu.close();
 			  LINFO("imu file closed");
@@ -277,8 +305,7 @@ class IMUImage : public jevois::Module,
 	//	  return itsStartIMU;
 	//}
   private:
-	jevois::BoundedBuffer<cv::Mat, jevois::BlockingBehavior::Block, jevois::BlockingBehavior::Block> itsBufImgData;
-	jevois::BoundedBuffer<long long, jevois::BlockingBehavior::Block, jevois::BlockingBehavior::Block> itsBufImgTime;
+	jevois::BoundedBuffer<std::pair<long long, cv::Mat>, jevois::BlockingBehavior::Block, jevois::BlockingBehavior::Block> itsBufImgData;
     std::shared_ptr<jevois::ICM20948> itsIMU;
     std::list<jevois::IMUdata> itsIMUdata;
     std::atomic<bool> itsRunSaveIMU, itsStartSave, itsRunSaveImg;
