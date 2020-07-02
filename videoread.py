@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 
 cap = cv2.VideoCapture(2)
-nimg = 31
+nimg = 0
 
 while(True):
     # Capture frame-by-frame

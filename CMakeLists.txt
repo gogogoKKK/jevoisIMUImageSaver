@@ -35,6 +35,12 @@ include(JeVois)
 project(imuimage)
 jevois_project_set_flags()
 include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+if (JEVOIS_PLATFORM)
+  add_definitions(-I${JEVOIS_BUILDROOT_BASE}/host/usr/arm-buildroot-linux-gnueabihf/sysroot/usr/include/eigen3)
+else (JEVOIS_PLATFORM)
+  add_definitions(-I/usr/include/eigen3)
+endif (JEVOIS_PLATFORM)
+
 
 ## If your module will use components provided by jevoisbase, uncomment the lines below:
 #if (JEVOIS_PLATFORM)

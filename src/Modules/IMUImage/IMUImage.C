@@ -24,10 +24,11 @@
 #include <chrono>
 #include <unistd.h>
 #include <mutex>
-#include <cstdlib> // for std::system()
+#include <cstdlib> 
 #include <fstream>
 #include <opencv2/highgui/highgui.hpp>
 #include <sstream>
+#include <Eigen/Geometry>
 
 
 // icon by Catalin Fertu in cinema at flaticon
@@ -69,6 +70,9 @@ static jevois::ParameterCategory const ParamCateg("Save img and imu options");
 JEVOIS_DECLARE_PARAMETER(bufsize, int, "Buf size for the queue",
                          2000, ParamCateg);
 
+JEVOIS_DECLARE_PARAMETER(dataReadTh, int, "Data ready threshold",
+                         4, ParamCateg);
+
 JEVOIS_DECLARE_PARAMETER(maxFrames, int, "when the number of frame reaches the max, the saving process stops",
                          3000, ParamCateg);
 
@@ -78,7 +82,7 @@ JEVOIS_DECLARE_PARAMETER(saveIMUOnly, bool, "Only save IMU data and pass the ima
 JEVOIS_DECLARE_PARAMETER(IMUReadFrequency, double, "The read frequency for IMU sampling. Works only for Raw mode. In FIFO mode, try a large frequency",
                          100., ParamCateg);
 class IMUImage : public jevois::Module,
-	public jevois::Parameter<bufsize, maxFrames, saveIMUOnly, IMUReadFrequency>
+	public jevois::Parameter<bufsize, maxFrames, saveIMUOnly, IMUReadFrequency, dataReadTh>
 {
   public:
     //! Default base class constructor ok
@@ -205,7 +209,7 @@ class IMUImage : public jevois::Module,
 		 nimgs = 0;
          itsStartSave.store(true);
 		 std::string timepath;
-		 std::ifstream inFilePathName(jevois_module_root_path+"/name.txt", std::ios::in);
+		 std::ifstream inFilePathName(jevois_module_root_path + "/name.txt", std::ios::in);
 		 int npath = 0;
 		 if(inFilePathName.is_open()){
 			 std::string tmp;
@@ -219,7 +223,7 @@ class IMUImage : public jevois::Module,
 		 sprintf(buf, "%06d", npath++);
 		 timepath = buf;
 
-		 std::ofstream outFilePathName(jevois_module_root_path+"/name.txt", std::ofstream::out);
+		 std::ofstream outFilePathName(jevois_module_root_path + "/name.txt", std::ofstream::out);
 		 outFilePathName << npath << "\n";
 		 outFilePathName.close();
 
@@ -276,27 +280,68 @@ class IMUImage : public jevois::Module,
 			  std::string imuFile = imuImgRootPath+"/imu0.csv";
 			  LINFO("imu file path: " << imuFile);
 			  std::ofstream fimu(imuFile.c_str(), std::ofstream::out);
+              Eigen::Quaterniond q(1, 0., 0., 0.);
+              jevois::IMUrawData rd;
 			  while (itsStartSave.load()){
-				  jevois::IMUdata d = itsIMU->get();
-				//  if (itsIMU->dataReady() > 10)
-				//	  continue;
+				  // jevois::IMUdata d = itsIMU->get();
+				  if (itsIMU->dataReady() <= dataReadTh::get())
+					  continue;
 				  auto now = std::chrono::high_resolution_clock::now();
 				  auto micro = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch()).count();
-				  fimu << micro << "," << d.ax()*g0 << "," << d.ay()*g0 << "," << d.az()*g0 << 
-					  "," << d.gx()*deg2rad << "," << d.gy()*deg2rad << "," << d.gz()*deg2rad 
-					  << "," << d.mx() << "," << d.my() << "," << d.mz() << std::endl;
+				  jevois::IMUdata dd = itsIMU->get();
+                  jevois::DMPdata d = itsIMU->getDMP();
+
+                  if (d.header1 & JEVOIS_DMP_QUAT9)
+                  {
+                      q.w() = 0;
+                      q.x() = d.fix2float(d.quat9[0]);
+                      q.y() = d.fix2float(d.quat9[1]);
+                      q.z() = d.fix2float(d.quat9[2]);
+                      q.w() = std::sqrt(1.0 - q.squaredNorm());
+                  }
+                  // LINFO((d.header1 & JEVOIS_DMP_QUAT9) << " quat: " << q.w() << " " << q.x() << " " << q.y() << " " << q.z());
+                  // bool has_accel = false, has_gyro = false, has_cpass = false;
+                  // if (d.header1 & JEVOIS_DMP_ACCEL)
+                  // { 
+                  //     has_accel = true; rd.ax() = d.accel[0]; rd.ay() = d.accel[1]; rd.az() = d.accel[2]; 
+                  // }
+                  // if (d.header1 & JEVOIS_DMP_GYRO)
+                  // {
+                  //     has_gyro = true; rd.gx() = d.gyro[0]; rd.gy() = d.gyro[1]; rd.gz() = d.gyro[2]; 
+                  // }
+                  // jevois::IMUdata dd(rd, itsIMU->arange::get(), itsIMU->grange::get());
+                  // if (d.header1 & JEVOIS_DMP_CPASS)
+                  // { 
+                  //     has_cpass = true; rd.mx() = d.cpass[0]; rd.my() = d.cpass[1]; rd.mz() = d.cpass[2]; 
+                  // }
+                  // LINFO("data status: " << has_accel << " " << has_gyro << " " << has_cpass);
+				  fimu << micro << "," << dd.ax()*g0 << "," << dd.ay()*g0 << "," << dd.az()*g0 << 
+					  "," << dd.gx()*deg2rad << "," << dd.gy()*deg2rad << "," << dd.gz()*deg2rad 
+					  << "," << dd.mx() << "," << dd.my() << "," << dd.mz() 
+                      << "," << q.w() << "," << q.x() << "," << q.y() << "," << q.z() << std::endl;
+				//   fimu << micro << "," << d.ax()*g0 << "," << d.ay()*g0 << "," << d.az()*g0 << 
+				// 	  "," << d.gx()*deg2rad << "," << d.gy()*deg2rad << "," << d.gz()*deg2rad 
+				// 	  << "," << d.mx() << "," << d.my() << "," << d.mz() << std::endl;
 				  if (n++%100 == 0){
 					  //LINFO("imu get");
-					  LINFO("a: " << d.ax() << " " << d.ay() << " " << d.az() << " g: " << d.gx() << " " << d.gy() << " " << d.gz() << " mag: " << d.mx() << " " << d.my() << " " << d.mz());
-					  LINFO("mode: " << itsIMU->mode::get() << " grate: " << itsIMU->grate::get() << " data ready: " << itsIMU->dataReady() << " mill: " << micro);
+					  LINFO("a: " << dd.ax() << " " << dd.ay() << " " << dd.az() 
+                              << " g: " << dd.gx() << " " << dd.gy() << " " << dd.gz() 
+                              << " mag: " << dd.mx() << " " << dd.my() << " " << dd.mz() 
+                              << " quat: " << q.w() << " " << q.x() << " " << q.y() << " " << q.z());
 				  }
 				  usleep(sleeptime*1e3);
 			  }
 			  fimu.close();
 			  LINFO("imu file closed");
+
 		  }
-		  else
-			  usleep(100*1e3);
+          else{
+              while(itsIMU->dataReady()){
+                  jevois::DMPdata d = itsIMU->getDMP();
+              }
+			  usleep(50*1e3);
+
+          }
 	  }
     }
 

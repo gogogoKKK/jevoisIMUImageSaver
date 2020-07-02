@@ -17,15 +17,15 @@ ncpu=`cat /proc/cpuinfo |grep processor|wc -l`
 if [ `cat /proc/cpuinfo | grep ARM | wc -l` -gt 0 ]; then ncpu=1; fi
 echo ${ncpu}
 
-sudo /bin/rm -rf pbuild \
-	&& mkdir pbuild \
-    && cd pbuild \
-    && cmake "${extra} $@" -DJEVOIS_PLATFORM=ON .. \
-    && make -j ${ncpu} \
-    && sudo make install
-
-# sudo cd pbuild \
+# sudo /bin/rm -rf pbuild \
+# 	&& mkdir pbuild \
+#     && cd pbuild \
+#     && cmake "${extra} $@" -DJEVOIS_PLATFORM=ON .. \
 #     && make -j ${ncpu} \
 #     && sudo make install
-#     # && cd ..
+#
+cd pbuild \
+    && cmake "${extra} $@" -DJEVOIS_PLATFORM=ON .. \
+    && make -j ${ncpu} \
+    && sudo make install \
 
