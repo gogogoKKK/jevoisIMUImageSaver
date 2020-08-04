@@ -11,7 +11,7 @@ criteria = (cv2.TERM_CRITERIA_MAX_ITER | cv2.TERM_CRITERIA_EPS, 30, 0.001)
 
 # 获取标定板角点的位置
 nrows = 4
-ncols = 6
+ncols = 7
 objp = np.zeros((nrows*ncols,3), np.float32)
 objp[:,:2] = np.mgrid[0:ncols,0:nrows].T.reshape(-1,2)  # 将世界坐标系建在标定板上，所有点的Z坐标全部为0，所以只需要赋值x和y
 objp *= 0.052
@@ -52,6 +52,7 @@ print len(img_points)
 cv2.destroyAllWindows()
 
 # 标定
+flags = 0
 #flags = cv2.CALIB_FIX_ASPECT_RATIO
 #flags |= cv2.CALIB_ZERO_TANGENT_DIST
 #flags |= cv2.CALIB_SAME_FOCAL_LENGTH
@@ -59,7 +60,7 @@ cv2.destroyAllWindows()
 #flags |= cv2.CALIB_FIX_K3
 #flags |= cv2.CALIB_FIX_K4
 #flags |= cv2.CALIB_FIX_K5
-flags = cv2.CALIB_FIX_K3
+# flags = cv2.CALIB_FIX_K3
 # flags = cv2.CALIB_FIX_K1
 # flags |= cv2.CALIB_FIX_K2
 # flags |= cv2.CALIB_FIX_K3
@@ -125,17 +126,10 @@ print("-----------------------------------------------------")
 #
 #
 #
-# for fname in images
-#     img = cv2.imread(fname)
-#     h, w = img.shape[:2]
-#     newcameramtx, roi = cv2.getOptimalNewCameraMatrix(mtx,dist,(w,h),1,(w,h))
-#     print newcameramtx
-#     dst = cv2.undistort(img, mtx, dist, None, newcameramtx)
-#     # dst = cv2.undistort(img,mtx,dist,None,newcameramtx)
-#     x,y,w,h = roi
-#     dst1 = dst[y:y+h,x:x+w]
-#     # cv2.imwrite(dir+'/calibresult11.jpg', dst1)
-#     print "size of dst:", dst1.shape
-#     cv2.imshow('img', dst1)
-#     cv2.waitKey(0)
-#
+for fname in images:
+    img = cv2.imread(fname)
+    dst = cv2.undistort(img, mtx, dist, None, mtx)
+    cv2.imshow('img', img)
+    cv2.imshow('img2', dst)
+    cv2.waitKey(0)
+
